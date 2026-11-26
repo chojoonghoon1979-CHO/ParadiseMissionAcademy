@@ -253,6 +253,10 @@
     <div class="modal-box" id="studentHistoryContent"></div>
   </div>
 
+  <div id="parentEditModal" class="modal-backdrop" onclick="if(event.target===this) closeParentModal()">
+    <div class="modal-box" id="parentEditContent" style="max-width:520px;"></div>
+  </div>
+
   <div class="container">
     <aside class="sidebar" id="sidebar">
       <button class="nav-item active" data-tab="calendar" onclick="setTab('calendar')">📅 Academic Calendar</button>
@@ -1661,12 +1665,15 @@
                         ${p.password ? `
                           <button class="btn btn-sm btn-outline" onclick="copyParentCredential('${p.key}')">📋 Copy</button>
                         ` : (isTeacher ? '<span style="color:var(--muted); font-size:0.8rem;">Admin sets PW</span>' : '')}
-                        ${canManagePW ? (p.password ? `
-                          <button class="btn btn-sm" onclick="resetParentPassword('${p.key}')">🔄 Reset PW</button>
-                          <button class="btn btn-sm btn-outline" onclick="changeParentPassword('${p.key}')">✏️ Change PW</button>
-                        ` : `
-                          <button class="btn btn-sm" onclick="generateParentPasswordFor('${p.key}')">🔑 Generate PW</button>
-                        `) : ''}
+                        ${canManagePW ? `
+                          <button class="btn btn-sm btn-outline" onclick="openParentModal('${p.key}')">✏️ Edit</button>
+                          ${p.password ? `
+                            <button class="btn btn-sm" onclick="resetParentPassword('${p.key}')">🔄 Reset PW</button>
+                            <button class="btn btn-sm btn-outline" onclick="changeParentPassword('${p.key}')">🔑 Change PW</button>
+                          ` : `
+                            <button class="btn btn-sm" onclick="generateParentPasswordFor('${p.key}')">🔑 Generate PW</button>
+                          `}
+                        ` : ''}
                       ` : '<span style="color:var(--muted); font-size:0.8rem;">Add contact first</span>'}
                     </td>
                   </tr>
@@ -1707,6 +1714,24 @@
         return renderParentTable(grade, rows, `Student(s) in ${grade}`);
       }).join('');
 
+      const linkedKeys = new Set(students.map(s => normalizePhone(s.phone)).filter(Boolean));
+      const directParents = Object.entries(parentAccounts)
+        .filter(([key]) => !linkedKeys.has(key))
+        .map(([key, acc]) => ({
+          key,
+          guardian: acc.guardian || '-',
+          loginId: acc.loginId || key,
+          email: acc.email || '',
+          fbMessenger: acc.fbMessenger || '-',
+          password: acc.password || '',
+          address: acc.address || '-',
+          hasAccount: true,
+          children: ['(No linked student yet)']
+        }));
+      const directBlock = (parentGradeFilter === 'ALL' && directParents.length)
+        ? renderParentTable('Direct / Unlinked Parent Accounts', directParents, 'Linked Student(s)')
+        : '';
+
       return `
         <div class="card">
           <div class="card-header">
@@ -1716,15 +1741,142 @@
                 <option value="ALL" ${parentGradeFilter==='ALL'?'selected':''}>All Grade Levels</option>
                 ${allGrades.map(g => `<option value="${g}" ${parentGradeFilter===g?'selected':''}>${g}</option>`).join('')}
               </select>
-              <span class="badge badge-red">PW Manage: Admin &amp; Vice Admin Only</span>
+              ${canManagePW ? `<button class="btn btn-sm" onclick="openParentModal('')">+ Add Parent</button>` : ''}
+              <span class="badge badge-red">Manage: Admin &amp; Vice Admin Only</span>
             </div>
           </div>
           <div class="notice" style="margin-bottom:16px;">
-            🔑 <strong>Admin &amp; Vice Admin</strong> can generate, reset, or change parent passwords. Class teachers can view and send credentials for their own assigned class only.
+            🔑 <strong>Admin &amp; Vice Admin</strong> can add, edit, and manage parent biodata and passwords. Class teachers can view and send credentials for their own assigned class only.
           </div>
+          ${directBlock}
           ${gradeBlocks || '<div class="notice">No grade levels found.</div>'}
         </div>
       `;
+    }
+
+    function openParentModal(phoneKey) {
+      if (currentRole !== 'admin' && currentRole !== 'vice_admin') {
+        return alert('Only Admin and Vice Admin can add or edit parent biodata.');
+      }
+      const isEdit = Boolean(phoneKey && parentAccounts[phoneKey]);
+      const acc = isEdit ? parentAccounts[phoneKey] : { guardian: '', loginId: '', email: '', fbMessenger: '', address: '' };
+      const linkedNames = isEdit
+        ? students.filter(s => normalizePhone(s.phone) === phoneKey).map(s => `${s.name} (${s.level})`).join(', ')
+        : '';
+
+      const box = document.getElementById('parentEditContent');
+      box.innerHTML = `
+        <div class="modal-header">
+          <h3 style="margin:0;">${isEdit ? '✏️ Edit Parent Biodata' : '➕ Add Parent Biodata'}</h3>
+          <button class="btn btn-sm btn-outline" onclick="closeParentModal()">✕ Close</button>
+        </div>
+        <div style="display:grid; gap:12px; margin-top:14px;">
+          ${isEdit && linkedNames ? `<div class="notice" style="margin:0;">👨‍👩‍👧 Linked Student(s): <strong>${linkedNames}</strong></div>` : ''}
+          <div>
+            <label style="display:block; font-weight:600; margin-bottom:4px;">Parent / Guardian Name *</label>
+            <input id="pmGuardian" type="text" value="${(acc.guardian || '').replace(/"/g, '&quot;')}" placeholder="e.g. Maria Santos" style="width:100%;" />
+          </div>
+          <div>
+            <label style="display:block; font-weight:600; margin-bottom:4px;">Contact / Login ID (Phone) *</label>
+            <input id="pmPhone" type="text" value="${(acc.loginId || '').replace(/"/g, '&quot;')}" placeholder="e.g. 0917-555-0101" style="width:100%;" />
+          </div>
+          <div>
+            <label style="display:block; font-weight:600; margin-bottom:4px;">Email</label>
+            <input id="pmEmail" type="email" value="${(acc.email || '').replace(/"/g, '&quot;')}" placeholder="parent@email.com" style="width:100%;" />
+          </div>
+          <div>
+            <label style="display:block; font-weight:600; margin-bottom:4px;">FB Messenger ID</label>
+            <input id="pmFb" type="text" value="${(acc.fbMessenger || '').replace(/"/g, '&quot;')}" placeholder="e.g. maria.santos.fb" style="width:100%;" />
+          </div>
+          <div>
+            <label style="display:block; font-weight:600; margin-bottom:4px;">Address</label>
+            <input id="pmAddress" type="text" value="${(acc.address || '').replace(/"/g, '&quot;')}" placeholder="e.g. Bayombong, Nueva Vizcaya" style="width:100%;" />
+          </div>
+          ${!isEdit ? `
+            <div>
+              <label style="display:block; font-weight:600; margin-bottom:4px;">Link to Existing Student (Optional)</label>
+              <select id="pmStudentId" style="width:100%;">
+                <option value="">-- No student link yet --</option>
+                ${students.map(s => `<option value="${s.id}">${s.name} (${s.level} - ${s.section})</option>`).join('')}
+              </select>
+            </div>
+          ` : ''}
+          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:6px;">
+            <button class="btn btn-outline" onclick="closeParentModal()">Cancel</button>
+            <button class="btn" onclick="saveParentModal('${phoneKey || ''}')">💾 Save</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('parentEditModal').classList.add('open');
+    }
+
+    function closeParentModal() {
+      const modal = document.getElementById('parentEditModal');
+      if (modal) modal.classList.remove('open');
+    }
+
+    function saveParentModal(oldKey) {
+      if (currentRole !== 'admin' && currentRole !== 'vice_admin') {
+        return alert('Only Admin and Vice Admin can add or edit parent biodata.');
+      }
+      const guardian = document.getElementById('pmGuardian').value.trim();
+      const phone = document.getElementById('pmPhone').value.trim();
+      const email = document.getElementById('pmEmail').value.trim();
+      const fbMessenger = document.getElementById('pmFb').value.trim();
+      const address = document.getElementById('pmAddress').value.trim();
+
+      if (!guardian) return alert('Please enter Parent / Guardian Name.');
+      if (!phone) return alert('Please enter Contact / Login ID (Phone).');
+
+      const newKey = normalizePhone(phone);
+      if (!newKey) return alert('Please enter a valid phone number.');
+
+      if (oldKey && parentAccounts[oldKey]) {
+        const existingPw = parentAccounts[oldKey].password || '';
+        if (oldKey !== newKey) delete parentAccounts[oldKey];
+        parentAccounts[newKey] = {
+          loginId: phone,
+          password: existingPw || generateParentPassword(),
+          guardian,
+          email,
+          fbMessenger,
+          address
+        };
+        students.forEach(s => {
+          if (normalizePhone(s.phone) === oldKey) {
+            s.guardian = guardian;
+            s.phone = phone;
+            s.email = email;
+            s.fbMessenger = fbMessenger;
+            s.address = address;
+          }
+        });
+      } else {
+        const acc = ensureParentAccount(guardian, phone, address, true, fbMessenger, email);
+        if (acc) {
+          acc.guardian = guardian;
+          acc.loginId = phone;
+          acc.email = email;
+          acc.fbMessenger = fbMessenger;
+          acc.address = address;
+        }
+        const stuSelect = document.getElementById('pmStudentId');
+        const stuId = stuSelect ? Number(stuSelect.value) : 0;
+        if (stuId) {
+          const stu = students.find(s => s.id === stuId);
+          if (stu) {
+            stu.guardian = guardian;
+            stu.phone = phone;
+            stu.email = email;
+            stu.fbMessenger = fbMessenger;
+            stu.address = address;
+          }
+        }
+      }
+
+      closeParentModal();
+      scheduleSave();
+      render();
     }
 
     function generateParentPasswordFor(phoneKey) {
