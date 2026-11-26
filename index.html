@@ -257,6 +257,10 @@
     <div class="modal-box" id="parentEditContent" style="max-width:520px;"></div>
   </div>
 
+  <div id="studentEditModal" class="modal-backdrop" onclick="if(event.target===this) closeStudentModal()">
+    <div class="modal-box" id="studentEditContent" style="max-width:560px;"></div>
+  </div>
+
   <div class="container">
     <aside class="sidebar" id="sidebar">
       <button class="nav-item active" data-tab="calendar" onclick="setTab('calendar')">📅 Academic Calendar</button>
@@ -1313,6 +1317,7 @@
                     <td><input type="text" value="${(s.address || '').replace(/"/g, '&quot;')}" style="width:100%; min-width:170px;" onchange="updateStudentParentInfo(${idx}, 'address', this.value)" /></td>
                     <td style="white-space:nowrap;">
                       <button class="btn btn-sm btn-outline" onclick="openStudentHistory(${s.id})">📊 History</button>
+                      ${canManageRoster ? `<button class="btn btn-sm btn-outline" onclick="openStudentModal(${idx})">✏️ Edit</button>` : ''}
                       ${canManageRoster ? `<button class="btn btn-sm btn-danger" onclick="removeStudentFromYear(${idx})">Remove</button>` : ''}
                     </td>
                   </tr>
@@ -2144,6 +2149,102 @@
           alert(`Student added!\nParent Login ID registered: ${acc.loginId}\n(Admin or Vice Admin can generate the password in Parent Biodata.)`);
         }
       }
+      render();
+    }
+
+    function openStudentModal(idx) {
+      const s = students[idx];
+      if (!s) return;
+      const esc = (v) => (v || '').replace(/"/g, '&quot;');
+      const modal = document.getElementById('studentEditModal');
+      const content = document.getElementById('studentEditContent');
+      content.innerHTML = `
+        <div class="modal-header">
+          <h3 style="margin:0;">✏️ Edit Student</h3>
+          <button class="btn btn-sm btn-outline" onclick="closeStudentModal()">✕ Close</button>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px;">
+          <div>
+            <label style="font-size:0.82rem; font-weight:600;">LRN *</label>
+            <input type="text" id="editStuLrn" value="${esc(s.lrn)}" style="width:100%; margin-top:4px;" />
+          </div>
+          <div>
+            <label style="font-size:0.82rem; font-weight:600;">Full Name *</label>
+            <input type="text" id="editStuName" value="${esc(s.name)}" style="width:100%; margin-top:4px;" />
+          </div>
+          <div>
+            <label style="font-size:0.82rem; font-weight:600;">Grade Level</label>
+            <input type="text" id="editStuLevel" value="${esc(s.level)}" style="width:100%; margin-top:4px;" />
+          </div>
+          <div>
+            <label style="font-size:0.82rem; font-weight:600;">Section</label>
+            <input type="text" id="editStuSection" value="${esc(s.section)}" style="width:100%; margin-top:4px;" />
+          </div>
+          <div>
+            <label style="font-size:0.82rem; font-weight:600;">Parent / Guardian</label>
+            <input type="text" id="editStuGuardian" value="${esc(s.guardian)}" style="width:100%; margin-top:4px;" />
+          </div>
+          <div>
+            <label style="font-size:0.82rem; font-weight:600;">Parent Contact (Login ID) *</label>
+            <input type="text" id="editStuPhone" value="${esc(s.phone)}" style="width:100%; margin-top:4px;" />
+          </div>
+          <div>
+            <label style="font-size:0.82rem; font-weight:600;">Parent Email</label>
+            <input type="email" id="editStuEmail" value="${esc(s.email)}" style="width:100%; margin-top:4px;" />
+          </div>
+          <div>
+            <label style="font-size:0.82rem; font-weight:600;">FB Messenger ID</label>
+            <input type="text" id="editStuFb" value="${esc(s.fbMessenger)}" style="width:100%; margin-top:4px;" />
+          </div>
+          <div style="grid-column:1 / -1;">
+            <label style="font-size:0.82rem; font-weight:600;">Address</label>
+            <input type="text" id="editStuAddress" value="${esc(s.address)}" style="width:100%; margin-top:4px;" />
+          </div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+          <button class="btn btn-outline" onclick="closeStudentModal()">Cancel</button>
+          <button class="btn" onclick="saveStudentModal(${idx})">💾 Save</button>
+        </div>
+      `;
+      modal.classList.add('open');
+    }
+
+    function closeStudentModal() {
+      document.getElementById('studentEditModal').classList.remove('open');
+    }
+
+    function saveStudentModal(idx) {
+      const s = students[idx];
+      if (!s) return;
+      const lrn = document.getElementById('editStuLrn').value.trim();
+      const name = document.getElementById('editStuName').value.trim();
+      const level = document.getElementById('editStuLevel').value.trim() || 'Grade 7';
+      const section = document.getElementById('editStuSection').value.trim() || 'A';
+      const guardian = document.getElementById('editStuGuardian').value.trim();
+      const phone = document.getElementById('editStuPhone').value.trim();
+      const email = document.getElementById('editStuEmail').value.trim();
+      const fbMessenger = document.getElementById('editStuFb').value.trim();
+      const address = document.getElementById('editStuAddress').value.trim();
+
+      if (!lrn || !name) return alert('Please enter LRN and Full Name.');
+      if (!phone) return alert('Please enter Parent Contact (used as Parent Login ID).');
+
+      s.lrn = lrn;
+      s.name = name;
+      s.level = level;
+      s.section = section;
+      s.guardian = guardian;
+      s.phone = phone;
+      s.email = email;
+      s.fbMessenger = fbMessenger;
+      s.address = address;
+      s.parentId = normalizePhone(phone);
+
+      ensureGradeSectionExists(level, section);
+      const canManagePW = currentRole === 'admin' || currentRole === 'vice_admin';
+      ensureParentAccount(guardian, phone, address, canManagePW, fbMessenger, email);
+
+      closeStudentModal();
       render();
     }
 
