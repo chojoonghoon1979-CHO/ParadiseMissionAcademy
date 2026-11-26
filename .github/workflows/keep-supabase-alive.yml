@@ -1,0 +1,27 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    # 5일마다 필리핀 시간 오전 9시(UTC 01:00)에 자동 실행
+    - cron: '0 1 /5  *'
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase database to prevent 7-day auto-pause
+        run: |
+          HTTP_CODE=$(curl -s -o /tmp/ping_response.txt -w "%{http_code}" \
+            -X POST "https://zcpsicqcxwtefhxrlrgh.supabase.co/rest/v1/rpc/portal_phone_login" \
+            -H "apikey: sb_publishable_7_igpV0PJyOVW2ZSN6RxYQ_IXDAA-_E" \
+            -H "Authorization: Bearer sb_publishable_7_igpV0PJyOVW2ZSN6RxYQ_IXDAA-_E" \
+            -H "Content-Type: application/json" \
+            -d '{"p_phone":"0","p_password":"keepalive"}')
+          echo "Supabase ping HTTP status: $HTTP_CODE"
+          cat /tmp/ping_response.txt
+          echo ""
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "Supabase ping failed!"
+            exit 1
+          fi
