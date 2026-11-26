@@ -119,6 +119,39 @@
     .login-quick-btns { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
     .login-quick-btn { padding: 6px 10px; font-size: 0.78rem; border: 1px solid var(--border); background: #f8fafc; border-radius: 6px; cursor: pointer; font-weight: 600; color: var(--text); }
     .login-quick-btn:hover { background: #eff6ff; border-color: var(--primary); color: var(--primary); }
+
+    /* School Year Selector & Modal */
+    .sy-switcher {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,0.16); padding: 4px 10px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.32);
+    }
+    .sy-switcher label { font-size: 0.78rem; font-weight: 700; opacity: 0.95; }
+    .sy-switcher select {
+      background: #fff; color: var(--primary); font-weight: 700; font-size: 0.82rem;
+      border: none; border-radius: 999px; padding: 3px 10px; cursor: pointer;
+    }
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.58);
+      display: none; align-items: center; justify-content: center;
+      z-index: 9000; padding: 16px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-box {
+      background: #fff; border-radius: 14px; width: 100%; max-width: 900px;
+      max-height: 88vh; overflow-y: auto; box-shadow: 0 24px 60px rgba(0,0,0,0.3);
+      padding: 22px 24px;
+    }
+    .modal-header {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px;
+      position: sticky; top: -22px; background: #fff; z-index: 2; padding-top: 4px;
+    }
+    .student-link {
+      color: var(--primary); font-weight: 700; cursor: pointer; text-decoration: underline;
+      background: none; border: none; padding: 0; font-size: inherit; text-align: left;
+    }
+    .student-link:hover { color: var(--primary-light); }
   </style>
 </head>
 <body>
@@ -159,11 +192,19 @@
       </div>
     </div>
     <div class="role-switcher">
+      <div class="sy-switcher" title="Switch School Year">
+        <label for="sySelect">📅 SY</label>
+        <select id="sySelect" onchange="switchSchoolYear(this.value)"></select>
+      </div>
       <span id="userBadge" style="font-size:0.82rem; font-weight:600; background:rgba(255,255,255,0.16); padding:5px 10px; border-radius:999px;"></span>
       <span id="saveStatus" style="font-size:0.75rem; opacity:0.85;"></span>
       <button class="role-btn" onclick="logout()" style="background:#ef4444; border-color:#ef4444; color:#fff; margin-left:6px;">🚪 Logout</button>
     </div>
   </header>
+
+  <div id="studentHistoryModal" class="modal-backdrop" onclick="if(event.target===this) closeStudentHistory()">
+    <div class="modal-box" id="studentHistoryContent"></div>
+  </div>
 
   <div class="container">
     <aside class="sidebar" id="sidebar">
@@ -216,6 +257,162 @@
     let selectedParentChildId = 1;
     let currentParentPhone = '0917-555-0101';
     let parentGradeFilter = 'ALL';
+    let bioGradeFilter = 'ALL';
+    let bioSearchQuery = '';
+
+    // --- SCHOOL YEAR (SY) STATE ---
+    const DEFAULT_SCHOOL_YEAR = '2026-2027';
+    let schoolYears = [DEFAULT_SCHOOL_YEAR];
+    let activeSchoolYear = DEFAULT_SCHOOL_YEAR;
+    let selectedSchoolYear = DEFAULT_SCHOOL_YEAR;
+    const yearData = {};
+
+    function deepClone(obj) {
+      return JSON.parse(JSON.stringify(obj));
+    }
+
+    function makeEmptyYearBucket() {
+      return {
+        calendarEvents: [],
+        students: [],
+        attendance: {},
+        grades: {},
+        gradeComments: {},
+        bills: [],
+        financeLogs: [],
+        gradeSections: [],
+        parentAccessByGrade: [],
+        classTeacherAssignments: {}
+      };
+    }
+
+    function snapshotCurrentYear() {
+      return {
+        calendarEvents: deepClone(calendarEvents),
+        students: deepClone(students),
+        attendance: deepClone(attendance),
+        grades: deepClone(grades),
+        gradeComments: deepClone(gradeComments),
+        bills: deepClone(bills),
+        financeLogs: deepClone(financeLogs),
+        gradeSections: deepClone(gradeSections),
+        parentAccessByGrade: deepClone(parentAccessByGrade),
+        classTeacherAssignments: deepClone(classTeacherAssignments)
+      };
+    }
+
+    function saveCurrentYearToYearData() {
+      if (!selectedSchoolYear) selectedSchoolYear = activeSchoolYear || DEFAULT_SCHOOL_YEAR;
+      yearData[selectedSchoolYear] = snapshotCurrentYear();
+      if (!schoolYears.includes(selectedSchoolYear)) {
+        schoolYears.push(selectedSchoolYear);
+        schoolYears.sort();
+      }
+    }
+
+    function replaceArrInPlace(target, src) {
+      target.length = 0;
+      if (Array.isArray(src)) target.push(...deepClone(src));
+    }
+
+    function replaceObjInPlace(target, src) {
+      Object.keys(target).forEach(k => delete target[k]);
+      if (src && typeof src === 'object' && !Array.isArray(src)) {
+        Object.assign(target, deepClone(src));
+      }
+    }
+
+    function loadYearFromYearData(sy) {
+      const bucket = yearData[sy] || makeEmptyYearBucket();
+      selectedSchoolYear = sy;
+      replaceArrInPlace(calendarEvents, bucket.calendarEvents || []);
+      replaceArrInPlace(students, bucket.students || []);
+      replaceObjInPlace(attendance, bucket.attendance || {});
+      replaceObjInPlace(grades, bucket.grades || {});
+      replaceObjInPlace(gradeComments, bucket.gradeComments || {});
+      replaceArrInPlace(bills, bucket.bills || []);
+      replaceArrInPlace(financeLogs, bucket.financeLogs || []);
+      replaceArrInPlace(gradeSections, bucket.gradeSections || []);
+      replaceArrInPlace(parentAccessByGrade, bucket.parentAccessByGrade || []);
+      replaceObjInPlace(classTeacherAssignments, bucket.classTeacherAssignments || {});
+      if (students.length > 0) {
+        if (!students.some(s => s.id === attStudentId)) attStudentId = students[0].id;
+        if (!students.some(s => s.id === selectedParentChildId)) selectedParentChildId = students[0].id;
+      }
+      attClassFilter = 'ALL';
+      parentGradeFilter = 'ALL';
+      bioGradeFilter = 'ALL';
+      if (currentRole === 'teacher' && currentPhoneSession && currentPhoneSession.name) {
+        const assigned = findTeacherAssignedClass(currentPhoneSession.name);
+        teacherAssignedClass = assigned || '';
+      }
+      updateSchoolYearSelector();
+    }
+
+    function updateSchoolYearSelector() {
+      const sel = document.getElementById('sySelect');
+      if (!sel) return;
+      const sorted = [...new Set(schoolYears)].sort();
+      sel.innerHTML = sorted.map(sy =>
+        `<option value="${sy}" ${sy === selectedSchoolYear ? 'selected' : ''}>${sy}${sy === activeSchoolYear ? ' (Active)' : ''}</option>`
+      ).join('');
+    }
+
+    function switchSchoolYear(sy) {
+      if (!sy || sy === selectedSchoolYear) return;
+      saveCurrentYearToYearData();
+      if (!yearData[sy]) yearData[sy] = makeEmptyYearBucket();
+      loadYearFromYearData(sy);
+      render();
+    }
+
+    function getNextStudentId() {
+      let maxId = 0;
+      students.forEach(s => { if (s && Number(s.id) > maxId) maxId = Number(s.id); });
+      Object.values(yearData).forEach(yd => {
+        if (yd && Array.isArray(yd.students)) {
+          yd.students.forEach(s => { if (s && Number(s.id) > maxId) maxId = Number(s.id); });
+        }
+      });
+      return maxId + 1;
+    }
+
+    function findExistingStudentIdByLrn(lrn) {
+      const clean = String(lrn || '').trim();
+      if (!clean) return null;
+      const cur = students.find(s => String(s.lrn || '').trim() === clean);
+      if (cur) return cur.id;
+      for (const yd of Object.values(yearData)) {
+        if (yd && Array.isArray(yd.students)) {
+          const found = yd.students.find(s => String(s.lrn || '').trim() === clean);
+          if (found) return found.id;
+        }
+      }
+      return null;
+    }
+
+    function suggestNextSchoolYear(baseSy) {
+      const m = String(baseSy || '').match(/^(\d{4})-(\d{4})$/);
+      if (m) return `${Number(m[1]) + 1}-${Number(m[2]) + 1}`;
+      const y = new Date().getFullYear();
+      return `${y}-${y + 1}`;
+    }
+
+    function promoteGradeLevel(level) {
+      const raw = String(level || '').trim();
+      if (!raw) return raw;
+      const lower = raw.toLowerCase();
+      if (lower === 'nursery') return 'Kinder 1';
+      if (lower === 'kinder 1' || lower === 'k1') return 'Kinder 2';
+      if (lower === 'kinder 2' || lower === 'k2' || lower === 'kinder' || lower === 'kindergarten') return 'Grade 1';
+      const m = raw.match(/^grade\s*(\d+)$/i);
+      if (m) {
+        const n = Number(m[1]);
+        if (n >= 12) return 'Graduated';
+        return `Grade ${n + 1}`;
+      }
+      return raw;
+    }
 
     // Parent Accounts keyed by normalized phone (Login ID = Representative Contact)
     const parentAccounts = {};
@@ -832,6 +1029,7 @@
               <select onchange="selectedParentChildId=Number(this.value); render();">
                 ${visibleStudents.map(s => `<option value="${s.id}" ${s.id===selectedParentChildId?'selected':''}>${s.name} (${s.level} - ${s.section})</option>`).join('')}
               </select>
+              <button class="btn btn-sm btn-outline" onclick="openStudentHistory(${selectedParentChildId})">📚 All-Year History</button>
             </div>
           </div>
           ${canEdit ? `
@@ -942,15 +1140,69 @@
 
     function renderBiodata() {
       const canEdit = currentRole === 'admin' || currentRole === 'vice_admin' || currentRole === 'teacher' || currentRole === 'cashier';
+      const canManageRoster = currentRole === 'admin' || currentRole === 'vice_admin';
+      const allGrades = [...new Set([
+        ...gradeSections.map(g => g.grade),
+        ...students.map(s => s.level)
+      ])].filter(Boolean).sort();
+
+      const q = bioSearchQuery.trim().toLowerCase();
+      const filteredStudents = students
+        .map((s, idx) => ({ s, idx }))
+        .filter(({ s }) => {
+          if (bioGradeFilter !== 'ALL' && s.level !== bioGradeFilter) return false;
+          if (!q) return true;
+          return (s.name || '').toLowerCase().includes(q)
+            || (s.lrn || '').toLowerCase().includes(q)
+            || (s.guardian || '').toLowerCase().includes(q)
+            || (s.section || '').toLowerCase().includes(q);
+        });
+
+      // Students from other school years not yet enrolled in the selectedSchoolYear
+      const currentIds = new Set(students.map(s => s.id));
+      const importableCandidates = [];
+      const seenCandidateIds = new Set();
+      [...schoolYears].sort().reverse().forEach(sy => {
+        if (sy === selectedSchoolYear) return;
+        const yd = yearData[sy];
+        if (!yd || !Array.isArray(yd.students)) return;
+        yd.students.forEach(st => {
+          if (!currentIds.has(st.id) && !seenCandidateIds.has(st.id)) {
+            seenCandidateIds.add(st.id);
+            importableCandidates.push({ sy, student: st });
+          }
+        });
+      });
+
       return `
         <div class="card">
           <div class="card-header">
-            <div class="card-title">👨‍🎓 Student Biodata</div>
-            <span class="badge badge-blue">Admin, Teacher & Cashier Access</span>
+            <div class="card-title">👨‍🎓 Student Biodata <span class="badge badge-blue" style="margin-left:6px;">SY ${selectedSchoolYear}</span></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <input type="text" value="${bioSearchQuery.replace(/"/g, '&quot;')}" placeholder="Search name / LRN..." style="width:165px;" oninput="bioSearchQuery=this.value; render();" />
+              <select onchange="bioGradeFilter=this.value; render();">
+                <option value="ALL" ${bioGradeFilter==='ALL'?'selected':''}>All Grades (${students.length})</option>
+                ${allGrades.map(g => `<option value="${g}" ${bioGradeFilter===g?'selected':''}>${g}</option>`).join('')}
+              </select>
+            </div>
           </div>
           <div class="notice" style="margin-bottom:14px;">
-            ℹ️ Entering a parent's representative contact sets it as the <strong>Parent Login ID</strong>. Only <strong>Admin &amp; Vice Admin</strong> can generate or change passwords; teachers can view their own class parents' ID &amp; password in <strong>Parent Biodata</strong> to share with parents.
+            ℹ️ Click any student's <strong>Name</strong> or <strong>📊 History</strong> to view their <strong>multi-year grades &amp; attendance</strong> across all school years. Removing a student only removes them from <strong>SY ${selectedSchoolYear}</strong> (past school year records are preserved).
           </div>
+          ${canManageRoster && importableCandidates.length ? `
+            <div class="form-row" style="background:#eff6ff; padding:10px 12px; border-radius:8px; border:1px dashed var(--primary-light); margin-bottom:12px;">
+              <strong style="font-size:0.85rem; color:var(--primary);">📥 Re-enroll from Previous SY:</strong>
+              <select id="importStudentSelect" style="flex:1; min-width:240px;">
+                <option value="">-- Select student from another school year --</option>
+                ${importableCandidates.map(c => {
+                  const nextLvl = promoteGradeLevel(c.student.level);
+                  const suggested = nextLvl === 'Graduated' ? c.student.level : nextLvl;
+                  return `<option value="${c.sy}||${c.student.id}">${c.student.name} (LRN: ${c.student.lrn}) — Was ${c.student.level} (${c.sy}) → ${suggested}</option>`;
+                }).join('')}
+              </select>
+              <button class="btn btn-sm" onclick="importStudentFromPreviousYear()">+ Import to SY ${selectedSchoolYear}</button>
+            </div>
+          ` : ''}
           ${canEdit ? `
             <div class="form-row" style="background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--border); flex-wrap:wrap;">
               <input type="text" id="bioLrn" placeholder="LRN" style="width:120px;" />
@@ -967,25 +1219,297 @@
           ` : ''}
           <div class="table-wrap">
             <table>
-              <thead><tr><th>LRN</th><th>Full Name</th><th>Level & Section</th><th>Guardian</th><th>Parent Contact (ID)</th><th>Parent Email</th><th>FB Messenger ID</th><th>Address</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>LRN</th>
+                  <th>Full Name</th>
+                  <th>Grade Level</th>
+                  <th>Section</th>
+                  <th>Guardian</th>
+                  <th>Parent Contact (ID)</th>
+                  <th>Parent Email</th>
+                  <th>FB Messenger ID</th>
+                  <th>Address</th>
+                  <th>Record / Action</th>
+                </tr>
+              </thead>
               <tbody>
-                ${students.map((s, idx) => `
+                ${filteredStudents.length ? filteredStudents.map(({ s, idx }) => `
                   <tr>
-                    <td>${s.lrn}</td>
-                    <td><strong>${s.name}</strong></td>
-                    <td>${s.level} - ${s.section}</td>
-                    <td><input type="text" value="${s.guardian || ''}" style="width:130px;" onchange="updateStudentParentInfo(${idx}, 'guardian', this.value)" /></td>
-                    <td><input type="text" value="${s.phone || ''}" style="width:135px;" onchange="updateStudentParentInfo(${idx}, 'phone', this.value)" /></td>
-                    <td><input type="email" value="${s.email || ''}" placeholder="Parent Email" style="width:160px;" onchange="updateStudentParentInfo(${idx}, 'email', this.value)" /></td>
-                    <td><input type="text" value="${s.fbMessenger || ''}" placeholder="FB Messenger ID" style="width:140px;" onchange="updateStudentParentInfo(${idx}, 'fbMessenger', this.value)" /></td>
-                    <td><input type="text" value="${s.address || ''}" style="width:100%; min-width:180px;" onchange="updateStudentParentInfo(${idx}, 'address', this.value)" /></td>
+                    <td>
+                      ${canManageRoster
+                        ? `<input type="text" value="${(s.lrn || '').replace(/"/g, '&quot;')}" style="width:115px;" onchange="updateStudentField(${idx}, 'lrn', this.value)" />`
+                        : s.lrn}
+                    </td>
+                    <td>
+                      <button type="button" class="student-link" onclick="openStudentHistory(${s.id})" title="View multi-year grade history">${s.name}</button>
+                      ${canManageRoster ? `<div style="margin-top:4px;"><input type="text" value="${(s.name || '').replace(/"/g, '&quot;')}" style="width:140px; font-size:0.8rem;" onchange="updateStudentField(${idx}, 'name', this.value)" /></div>` : ''}
+                    </td>
+                    <td>
+                      ${canManageRoster
+                        ? `<input type="text" value="${(s.level || '').replace(/"/g, '&quot;')}" style="width:105px;" onchange="updateStudentField(${idx}, 'level', this.value)" />`
+                        : s.level}
+                    </td>
+                    <td>
+                      ${canManageRoster
+                        ? `<input type="text" value="${(s.section || '').replace(/"/g, '&quot;')}" style="width:90px;" onchange="updateStudentField(${idx}, 'section', this.value)" />`
+                        : s.section}
+                    </td>
+                    <td><input type="text" value="${(s.guardian || '').replace(/"/g, '&quot;')}" style="width:130px;" onchange="updateStudentParentInfo(${idx}, 'guardian', this.value)" /></td>
+                    <td><input type="text" value="${(s.phone || '').replace(/"/g, '&quot;')}" style="width:135px;" onchange="updateStudentParentInfo(${idx}, 'phone', this.value)" /></td>
+                    <td><input type="email" value="${(s.email || '').replace(/"/g, '&quot;')}" placeholder="Parent Email" style="width:160px;" onchange="updateStudentParentInfo(${idx}, 'email', this.value)" /></td>
+                    <td><input type="text" value="${(s.fbMessenger || '').replace(/"/g, '&quot;')}" placeholder="FB Messenger ID" style="width:140px;" onchange="updateStudentParentInfo(${idx}, 'fbMessenger', this.value)" /></td>
+                    <td><input type="text" value="${(s.address || '').replace(/"/g, '&quot;')}" style="width:100%; min-width:170px;" onchange="updateStudentParentInfo(${idx}, 'address', this.value)" /></td>
+                    <td style="white-space:nowrap;">
+                      <button class="btn btn-sm btn-outline" onclick="openStudentHistory(${s.id})">📊 History</button>
+                      ${canManageRoster ? `<button class="btn btn-sm btn-danger" onclick="removeStudentFromYear(${idx})">Remove</button>` : ''}
+                    </td>
                   </tr>
-                `).join('')}
+                `).join('') : `<tr><td colspan="10" style="text-align:center; color:var(--muted);">No students enrolled in SY ${selectedSchoolYear}.</td></tr>`}
               </tbody>
             </table>
           </div>
         </div>
       `;
+    }
+
+    function ensureGradeSectionExists(grade, section) {
+      const gName = (grade || '').trim();
+      const sName = (section || '').trim();
+      if (!gName || !sName) return;
+      const existing = gradeSections.find(g => g.grade.toLowerCase() === gName.toLowerCase());
+      if (existing) {
+        if (!existing.sections.includes(sName)) existing.sections.push(sName);
+      } else {
+        gradeSections.push({ grade: gName, sections: [sName] });
+        if (!parentAccessByGrade.some(p => p.grade.toLowerCase() === gName.toLowerCase())) {
+          parentAccessByGrade.push({ grade: gName, calendar: true, grades: true, bills: true });
+        }
+      }
+    }
+
+    function updateStudentField(idx, field, val) {
+      const s = students[idx];
+      if (!s) return;
+      s[field] = val.trim();
+      if (field === 'level' || field === 'section') {
+        ensureGradeSectionExists(s.level, s.section);
+      }
+      render();
+    }
+
+    function removeStudentFromYear(idx) {
+      if (currentRole !== 'admin' && currentRole !== 'vice_admin') {
+        return alert('Only Admin and Vice Admin can remove students.');
+      }
+      const s = students[idx];
+      if (!s) return;
+      if (!confirm(`Remove "${s.name}" from SY ${selectedSchoolYear}?\n\nNote: Their grades and records from other school years will remain preserved.`)) return;
+      students.splice(idx, 1);
+      const billIdx = bills.findIndex(b => b.studentId === s.id);
+      if (billIdx !== -1 && bills[billIdx].paid === 0 && (!bills[billIdx].receipts || bills[billIdx].receipts.length === 0)) {
+        bills.splice(billIdx, 1);
+      }
+      render();
+    }
+
+    function importStudentFromPreviousYear() {
+      if (currentRole !== 'admin' && currentRole !== 'vice_admin') {
+        return alert('Only Admin and Vice Admin can import students.');
+      }
+      const sel = document.getElementById('importStudentSelect');
+      if (!sel || !sel.value) return alert('Please select a student to import.');
+      const [srcSy, rawId] = sel.value.split('||');
+      const sid = Number(rawId);
+      const yd = yearData[srcSy];
+      if (!yd || !Array.isArray(yd.students)) return;
+      const src = yd.students.find(s => s.id === sid);
+      if (!src) return;
+      if (students.some(s => s.id === src.id)) return alert('This student is already enrolled in SY ' + selectedSchoolYear);
+      const nextLvl = promoteGradeLevel(src.level);
+      const newLevel = nextLvl === 'Graduated' ? src.level : nextLvl;
+      const cloned = deepClone(src);
+      cloned.level = newLevel;
+      students.push(cloned);
+      ensureGradeSectionExists(cloned.level, cloned.section);
+      if (!bills.some(b => b.studentId === cloned.id)) {
+        bills.push({ id: Date.now(), studentId: cloned.id, tuitionFee: 0, miscFee: 0, bookFee: 0, paid: 0, receipts: [] });
+      }
+      render();
+    }
+
+    function openStudentHistory(studentId) {
+      saveCurrentYearToYearData();
+      const sortedYears = [...new Set(schoolYears)].sort();
+      let latestProfile = students.find(s => s.id === studentId) || null;
+      let targetLrn = latestProfile && latestProfile.lrn ? String(latestProfile.lrn).trim() : '';
+
+      if (!latestProfile) {
+        for (let i = sortedYears.length - 1; i >= 0; i--) {
+          const yd = yearData[sortedYears[i]];
+          const found = yd && Array.isArray(yd.students) ? yd.students.find(s => s.id === studentId) : null;
+          if (found) {
+            latestProfile = found;
+            targetLrn = found.lrn ? String(found.lrn).trim() : '';
+            break;
+          }
+        }
+      }
+      if (!latestProfile) return alert('Student record not found.');
+
+      const yearEntries = [];
+      sortedYears.forEach(sy => {
+        const yd = yearData[sy];
+        if (!yd || !Array.isArray(yd.students)) return;
+        const st = yd.students.find(s => s.id === studentId || (targetLrn && String(s.lrn || '').trim() === targetLrn));
+        if (!st) return;
+        const stGrades = (yd.grades && yd.grades[st.id]) || [];
+        const stComments = (yd.gradeComments && yd.gradeComments[st.id]) || { q1: '', q2: '', q3: '' };
+        const classKey = `${st.level} - ${st.section}`;
+        const assigned = (yd.classTeacherAssignments && yd.classTeacherAssignments[classKey]) || { lead: '', assistant: '' };
+        let p = 0, a = 0, l = 0;
+        if (yd.attendance) {
+          Object.values(yd.attendance).forEach(dayRec => {
+            const val = dayRec && dayRec[st.id];
+            if (val === 'Present') p++;
+            else if (val === 'Absent') a++;
+            else if (val === 'Late') l++;
+          });
+        }
+        yearEntries.push({ sy, student: st, grades: stGrades, comments: stComments, assigned, att: { p, a, l } });
+      });
+
+      const modal = document.getElementById('studentHistoryModal');
+      const box = document.getElementById('studentHistoryContent');
+      if (!modal || !box) return;
+
+      const yearBlocks = yearEntries.map(entry => {
+        const list = entry.grades;
+        const avgRow = list.length ? (() => {
+          const t1 = (list.reduce((s, g) => s + (Number(g.q1) || 0), 0) / list.length).toFixed(1);
+          const t2 = (list.reduce((s, g) => s + (Number(g.q2) || 0), 0) / list.length).toFixed(1);
+          const t3 = (list.reduce((s, g) => s + (Number(g.q3) || 0), 0) / list.length).toFixed(1);
+          const fin = (list.reduce((s, g) => s + (((Number(g.q1)||0) + (Number(g.q2)||0) + (Number(g.q3)||0)) / 3), 0) / list.length).toFixed(1);
+          return `
+            <tfoot>
+              <tr style="background:#f8fafc; font-weight:700; border-top:2px solid var(--border);">
+                <td>Term Average</td>
+                <td><span class="badge ${t1>=75?'badge-green':'badge-red'}">${t1}</span></td>
+                <td><span class="badge ${t2>=75?'badge-green':'badge-red'}">${t2}</span></td>
+                <td><span class="badge ${t3>=75?'badge-green':'badge-red'}">${t3}</span></td>
+                <td><span class="badge ${fin>=75?'badge-green':'badge-red'}">${fin}</span></td>
+              </tr>
+            </tfoot>
+          `;
+        })() : '';
+
+        const hasComments = entry.comments && (entry.comments.q1 || entry.comments.q2 || entry.comments.q3);
+        return `
+          <div style="border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:14px; background:#fff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+              <div>
+                <span class="badge badge-blue" style="font-size:0.84rem;">SY ${entry.sy}</span>
+                <strong style="margin-left:8px; font-size:1rem;">${entry.student.level} - ${entry.student.section}</strong>
+                ${entry.assigned.lead ? `<span style="margin-left:8px; font-size:0.82rem; color:var(--muted);">Adviser: <strong>${entry.assigned.lead}</strong>${entry.assigned.assistant ? ` / ${entry.assigned.assistant}` : ''}</span>` : ''}
+              </div>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <span class="badge badge-green">P: ${entry.att.p}</span>
+                <span class="badge badge-red">A: ${entry.att.a}</span>
+                <span class="badge badge-yellow">L: ${entry.att.l}</span>
+              </div>
+            </div>
+            ${list.length ? `
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Subject</th><th>Term 1</th><th>Term 2</th><th>Term 3</th><th>Final Avg</th></tr></thead>
+                  <tbody>
+                    ${list.map(g => {
+                      const avg = (((Number(g.q1)||0) + (Number(g.q2)||0) + (Number(g.q3)||0)) / 3).toFixed(1);
+                      return `<tr>
+                        <td><strong>${g.subject}</strong></td>
+                        <td>${g.q1}</td>
+                        <td>${g.q2}</td>
+                        <td>${g.q3}</td>
+                        <td><span class="badge ${avg>=75?'badge-green':'badge-red'}">${avg}</span></td>
+                      </tr>`;
+                    }).join('')}
+                  </tbody>
+                  ${avgRow}
+                </table>
+              </div>
+            ` : `<div style="color:var(--muted); font-size:0.88rem; padding:6px 0;">No grades recorded for SY ${entry.sy} yet.</div>`}
+            ${hasComments ? `
+              <div style="margin-top:10px; background:#f8fafc; padding:10px 12px; border-radius:8px; font-size:0.85rem;">
+                <strong style="color:var(--primary);">💬 Teacher's Comments:</strong>
+                ${entry.comments.q1 ? `<div><strong>Term 1:</strong> ${entry.comments.q1}</div>` : ''}
+                ${entry.comments.q2 ? `<div><strong>Term 2:</strong> ${entry.comments.q2}</div>` : ''}
+                ${entry.comments.q3 ? `<div><strong>Term 3:</strong> ${entry.comments.q3}</div>` : ''}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+
+      box.innerHTML = `
+        <div class="modal-header">
+          <div>
+            <div style="font-size:1.18rem; font-weight:800; color:var(--primary);">📚 ${latestProfile.name} — Multi-Year Academic Record</div>
+            <div style="font-size:0.82rem; color:var(--muted);">LRN: <strong>${latestProfile.lrn || '-'}</strong> &bull; Guardian: <strong>${latestProfile.guardian || '-'}</strong> (${latestProfile.phone || '-'})</div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-sm btn-outline" onclick="printStudentHistory(${studentId})">🖨️ Print</button>
+            <button class="btn btn-sm btn-danger" onclick="closeStudentHistory()">✕ Close</button>
+          </div>
+        </div>
+        <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:0.86rem;">
+          <strong>Address:</strong> ${latestProfile.address || '-'} &nbsp;|&nbsp;
+          <strong>Email:</strong> ${latestProfile.email || '-'} &nbsp;|&nbsp;
+          <strong>Total School Years Recorded:</strong> <span class="badge badge-blue">${yearEntries.length}</span>
+        </div>
+        ${yearBlocks || '<div class="notice">No school year records found for this student.</div>'}
+      `;
+      modal.classList.add('open');
+    }
+
+    function closeStudentHistory() {
+      const modal = document.getElementById('studentHistoryModal');
+      if (modal) modal.classList.remove('open');
+    }
+
+    function printStudentHistory(studentId) {
+      const box = document.getElementById('studentHistoryContent');
+      if (!box) return;
+      const logoUrl = new URL('logo.png', location.href).href;
+      const clone = box.cloneNode(true);
+      clone.querySelectorAll('button').forEach(b => b.remove());
+      const win = window.open('', '_blank', 'width=840,height=900');
+      win.document.write(`
+        <html><head><title>Student Academic History</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
+          .print-head { display:flex; align-items:center; gap:12px; border-bottom:2px solid #1e40af; padding-bottom:10px; margin-bottom:16px; }
+          .print-head img { width:56px; height:56px; object-fit:contain; }
+          table { width:100%; border-collapse:collapse; margin-top:8px; font-size:0.88rem; }
+          th, td { border:1px solid #cbd5e1; padding:6px 8px; text-align:left; }
+          th { background:#f1f5f9; }
+          .badge { padding:2px 8px; border-radius:10px; font-size:0.78rem; font-weight:700; background:#e2e8f0; display:inline-block; }
+          .badge-blue { background:#dbeafe; color:#1e40af; }
+          .badge-green { background:#dcfce7; color:#166534; }
+          .badge-red { background:#fee2e2; color:#991b1b; }
+          .badge-yellow { background:#fef3c7; color:#92400e; }
+        </style></head><body>
+          <div class="print-head">
+            <img src="${logoUrl}" alt="Logo" />
+            <div>
+              <h2 style="margin:0; color:#1e40af;">Paradise Mission Academy</h2>
+              <div style="font-size:0.85rem; color:#64748b;">Solano, Nueva Vizcaya &bull; Permanent Academic Record (Printed: ${new Date().toISOString().slice(0,10)})</div>
+            </div>
+          </div>
+          ${clone.innerHTML}
+          <script>window.onload = function() { window.print(); };<\/script>
+        </body></html>
+      `);
+      win.document.close();
     }
 
     function updateStudentParentInfo(idx, field, val) {
@@ -1402,12 +1926,17 @@
       const address = document.getElementById('bioAddress').value.trim();
       if (!lrn || !name) return alert('Please enter LRN and Full Name.');
       if (!phone) return alert('Please enter Parent Contact (used as Parent Login ID).');
-      const newId = students.length ? Math.max(...students.map(s => s.id)) + 1 : 1;
+      const existingId = findExistingStudentIdByLrn(lrn);
+      if (existingId && students.some(s => s.id === existingId)) {
+        return alert('A student with this LRN is already enrolled in SY ' + selectedSchoolYear + '.');
+      }
+      const newId = existingId || getNextStudentId();
       const parentKey = normalizePhone(phone);
       const canManagePW = currentRole === 'admin' || currentRole === 'vice_admin';
       const isNewParent = !parentAccounts[parentKey];
       const acc = ensureParentAccount(guardian, phone, address, canManagePW, fbMessenger, email);
       students.push({ id: newId, lrn, name, level, section, guardian, phone, email, fbMessenger, address, parentId: parentKey });
+      ensureGradeSectionExists(level, section);
       bills.push({ id: Date.now(), studentId: newId, tuitionFee: 0, miscFee: 0, bookFee: 0, paid: 0, receipts: [] });
       if (isNewParent && acc) {
         if (canManagePW && acc.password) {
@@ -1453,6 +1982,7 @@
               <tbody>
                 ${visibleBills.map(b => {
                   const st = students.find(s => s.id === b.studentId);
+                  if (!st) return '';
                   const total = getBillTotal(b);
                   const bal = total - b.paid;
                   return `
@@ -1998,10 +2528,88 @@
     function renderSettings() {
       const canEdit = currentRole === 'admin' || currentRole === 'vice_admin';
       const teachers = staffBiodata.filter(s => s.role === 'Teacher');
+      const sortedYears = [...new Set(schoolYears)].sort();
+      const latestSy = sortedYears[sortedYears.length - 1] || DEFAULT_SCHOOL_YEAR;
+      const suggestedNext = suggestNextSchoolYear(latestSy);
       return `
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div class="card-title">🗓️ School Year Management (학년도 관리 &amp; 새 학기 진급)</div>
+            <span class="badge badge-blue">Viewing: SY ${selectedSchoolYear}</span>
+          </div>
+          <div class="notice" style="margin-bottom:14px;">
+            ℹ️ Each School Year stores its own <strong>students, grade levels, homeroom teachers, grades, attendance, bills, calendar, and finance</strong>. Past school years remain saved permanently so you can click any student to view their grade history across all years.
+          </div>
+
+          <div class="table-wrap" style="margin-bottom:16px;">
+            <table>
+              <thead><tr><th>School Year</th><th>Enrolled Students</th><th>Grades / Classes</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody>
+                ${sortedYears.map(sy => {
+                  const yd = sy === selectedSchoolYear ? { students, gradeSections } : (yearData[sy] || makeEmptyYearBucket());
+                  const stCount = (yd.students || []).length;
+                  const classCount = (yd.gradeSections || []).reduce((acc, g) => acc + (g.sections ? g.sections.length : 0), 0);
+                  const isActive = sy === activeSchoolYear;
+                  const isViewing = sy === selectedSchoolYear;
+                  return `
+                    <tr>
+                      <td><strong>SY ${sy}</strong></td>
+                      <td>${stCount} student(s)</td>
+                      <td>${classCount} class(es)</td>
+                      <td>
+                        ${isActive ? '<span class="badge badge-green">Active (Default)</span>' : '<span class="badge badge-yellow">Archived / Past</span>'}
+                        ${isViewing ? '<span class="badge badge-blue" style="margin-left:4px;">Viewing</span>' : ''}
+                      </td>
+                      <td style="white-space:nowrap;">
+                        ${!isViewing ? `<button class="btn btn-sm btn-outline" onclick="switchSchoolYear('${sy}')">Open SY</button>` : ''}
+                        ${canEdit && !isActive ? `<button class="btn btn-sm" onclick="setActiveSchoolYear('${sy}')">Set as Active</button>` : ''}
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          ${canEdit ? `
+            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:14px 16px;">
+              <div style="font-weight:700; color:var(--primary); margin-bottom:10px;">🚀 Start New School Year (새 학년도 만들기 및 데이터 이월)</div>
+              <div class="form-row" style="margin-bottom:10px;">
+                <label style="font-size:0.84rem; font-weight:600;">New SY:
+                  <input type="text" id="newSyName" value="${suggestedNext}" placeholder="e.g. 2027-2028" style="width:130px; margin-left:4px;" />
+                </label>
+                <label style="font-size:0.84rem; font-weight:600;">Copy From:
+                  <select id="copyFromSy" style="margin-left:4px;">
+                    ${sortedYears.slice().reverse().map(sy => `<option value="${sy}" ${sy===latestSy?'selected':''}>SY ${sy}</option>`).join('')}
+                  </select>
+                </label>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:6px; font-size:0.86rem; margin-bottom:12px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="optCarryClasses" checked />
+                  <span><strong>Carry over Grade Levels &amp; Sections</strong> (기존 학년·반 구조 넘기기)</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="optCarryStudents" checked />
+                  <span><strong>Carry over Students &amp; Auto-Promote (+1 Grade)</strong> (기존 학생 진급해서 넘기기 — Grade 12는 졸업 제외, 이후 수정·추가·제거 가능)</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="optKeepTeachers" />
+                  <span><strong>Keep previous Lead / Assistant Teacher assignments</strong> (체크 해제 시 새 담임을 빈 칸에서 새로 배정)</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                  <input type="checkbox" id="optSetActive" checked />
+                  <span><strong>Set as Active School Year</strong> (새 학년도를 기본 학년도로 설정)</span>
+                </label>
+              </div>
+              <button class="btn" onclick="createNewSchoolYear()">+ Create &amp; Switch to New School Year</button>
+            </div>
+          ` : ''}
+        </div>
+
         <div class="card">
           <div class="card-header">
-            <div class="card-title">⚙️ School Settings — Grade Levels, Sections & Teacher Assignment</div>
+            <div class="card-title">⚙️ School Settings — Grade Levels, Sections & Teacher Assignment (SY ${selectedSchoolYear})</div>
             <span class="badge badge-blue">${currentRole === 'admin' ? 'Admin' : 'Vice Admin'}</span>
           </div>
           ${canEdit ? `
@@ -2067,6 +2675,101 @@
       render();
     }
 
+    function setActiveSchoolYear(sy) {
+      if (currentRole !== 'admin' && currentRole !== 'vice_admin') {
+        return alert('Only Admin and Vice Admin can change the Active School Year.');
+      }
+      if (!yearData[sy] && sy !== selectedSchoolYear) return;
+      saveCurrentYearToYearData();
+      activeSchoolYear = sy;
+      loadYearFromYearData(sy);
+      render();
+    }
+
+    function createNewSchoolYear() {
+      if (currentRole !== 'admin' && currentRole !== 'vice_admin') {
+        return alert('Only Admin and Vice Admin can create a new School Year.');
+      }
+      saveCurrentYearToYearData();
+      const newSy = (document.getElementById('newSyName').value || '').trim();
+      const srcSy = document.getElementById('copyFromSy').value;
+      const carryClasses = document.getElementById('optCarryClasses').checked;
+      const carryStudents = document.getElementById('optCarryStudents').checked;
+      const keepTeachers = document.getElementById('optKeepTeachers').checked;
+      const setActive = document.getElementById('optSetActive').checked;
+
+      if (!newSy) return alert('Please enter a School Year name (e.g. 2027-2028).');
+      if (schoolYears.includes(newSy) || yearData[newSy]) {
+        return alert(`School Year "${newSy}" already exists. You can switch to it using the top SY selector.`);
+      }
+
+      const src = yearData[srcSy] || makeEmptyYearBucket();
+      const nextBucket = makeEmptyYearBucket();
+
+      if (carryClasses) {
+        nextBucket.gradeSections = deepClone(src.gradeSections || []);
+        nextBucket.parentAccessByGrade = deepClone(src.parentAccessByGrade || []);
+      }
+      if (keepTeachers) {
+        nextBucket.classTeacherAssignments = deepClone(src.classTeacherAssignments || {});
+      }
+
+      let promotedCount = 0;
+      let graduatedCount = 0;
+      if (carryStudents && Array.isArray(src.students)) {
+        src.students.forEach((st, idx) => {
+          const nextLevel = promoteGradeLevel(st.level);
+          if (nextLevel === 'Graduated') {
+            graduatedCount++;
+            return;
+          }
+          const promoted = deepClone(st);
+          promoted.level = nextLevel;
+          nextBucket.students.push(promoted);
+          promotedCount++;
+
+          // Ensure promoted student's grade & section exist in the new SY's gradeSections
+          const existingG = nextBucket.gradeSections.find(g => g.grade.toLowerCase() === nextLevel.toLowerCase());
+          if (existingG) {
+            if (promoted.section && !existingG.sections.includes(promoted.section)) {
+              existingG.sections.push(promoted.section);
+            }
+          } else if (nextLevel && promoted.section) {
+            nextBucket.gradeSections.push({ grade: nextLevel, sections: [promoted.section] });
+            if (!nextBucket.parentAccessByGrade.some(p => p.grade.toLowerCase() === nextLevel.toLowerCase())) {
+              nextBucket.parentAccessByGrade.push({ grade: nextLevel, calendar: true, grades: true, bills: true });
+            }
+          }
+
+          // Create fresh bill entry for the new school year
+          nextBucket.bills.push({
+            id: Date.now() + idx + 1,
+            studentId: promoted.id,
+            tuitionFee: 0,
+            miscFee: 0,
+            bookFee: 0,
+            paid: 0,
+            receipts: []
+          });
+        });
+      }
+
+      yearData[newSy] = nextBucket;
+      schoolYears.push(newSy);
+      schoolYears.sort();
+      if (setActive) activeSchoolYear = newSy;
+      loadYearFromYearData(newSy);
+
+      alert(
+        `SY ${newSy} created!\n\n` +
+        `- Carried over & promoted: ${promotedCount} student(s)\n` +
+        `- Graduated (Grade 12 excluded): ${graduatedCount} student(s)\n` +
+        `- Previous SY (${srcSy}) grades & records are safely preserved.\n\n` +
+        `You can now assign homeroom teachers here in Settings, and edit/add/remove students in Student Biodata.`
+      );
+      render();
+    }
+
 
     function addGradeSection() {
       const grade = document.getElementById('newGradeInput').value.trim();
@@ -2104,21 +2807,26 @@
     }
 
     function getPortalState() {
+      saveCurrentYearToYearData();
+      const activeBucket = yearData[activeSchoolYear] || yearData[selectedSchoolYear] || snapshotCurrentYear();
       return {
-        calendarEvents,
-        students,
+        activeSchoolYear,
+        schoolYears,
+        yearData,
+        calendarEvents: activeBucket.calendarEvents,
+        students: activeBucket.students,
         parentAccounts,
-        attendance,
-        grades,
-        gradeComments,
-        bills,
-        financeLogs,
+        attendance: activeBucket.attendance,
+        grades: activeBucket.grades,
+        gradeComments: activeBucket.gradeComments,
+        bills: activeBucket.bills,
+        financeLogs: activeBucket.financeLogs,
         coAdmins,
         staffBiodata,
         staffAccessRules,
-        gradeSections,
-        parentAccessByGrade,
-        classTeacherAssignments,
+        gradeSections: activeBucket.gradeSections,
+        parentAccessByGrade: activeBucket.parentAccessByGrade,
+        classTeacherAssignments: activeBucket.classTeacherAssignments,
         rolePermissions,
         teacherAssignedClass
       };
@@ -2135,26 +2843,48 @@
           Object.assign(target, src);
         }
       };
-      replaceArr(calendarEvents, data.calendarEvents);
-      replaceArr(students, data.students);
+
+      // Shared across all school years (kept top-level for Supabase RPC login/save)
       replaceObj(parentAccounts, data.parentAccounts);
-      replaceObj(attendance, data.attendance);
-      replaceObj(grades, data.grades);
-      replaceObj(gradeComments, data.gradeComments);
-      replaceArr(bills, data.bills);
-      replaceArr(financeLogs, data.financeLogs);
       replaceArr(coAdmins, data.coAdmins);
       replaceArr(staffBiodata, data.staffBiodata);
       staffBiodata.forEach(st => {
         st.role = st.role === 'Teacher' ? 'Teacher' : 'Staff';
       });
       replaceArr(staffAccessRules, data.staffAccessRules);
-      replaceArr(gradeSections, data.gradeSections);
-      replaceArr(parentAccessByGrade, data.parentAccessByGrade);
-      replaceObj(classTeacherAssignments, data.classTeacherAssignments);
       replaceObj(rolePermissions, data.rolePermissions);
       if (typeof data.teacherAssignedClass === 'string') {
         teacherAssignedClass = data.teacherAssignedClass;
+      }
+
+      // School-Year data (auto-migrate legacy single-year Supabase data into 2026-2027)
+      if (data.yearData && typeof data.yearData === 'object' && Object.keys(data.yearData).length > 0) {
+        replaceObj(yearData, deepClone(data.yearData));
+        schoolYears = Array.isArray(data.schoolYears) && data.schoolYears.length
+          ? [...new Set(data.schoolYears)].sort()
+          : Object.keys(yearData).sort();
+        activeSchoolYear = (data.activeSchoolYear && yearData[data.activeSchoolYear])
+          ? data.activeSchoolYear
+          : schoolYears[schoolYears.length - 1];
+        loadYearFromYearData(activeSchoolYear);
+      } else {
+        replaceArr(calendarEvents, data.calendarEvents);
+        replaceArr(students, data.students);
+        replaceObj(attendance, data.attendance);
+        replaceObj(grades, data.grades);
+        replaceObj(gradeComments, data.gradeComments);
+        replaceArr(bills, data.bills);
+        replaceArr(financeLogs, data.financeLogs);
+        replaceArr(gradeSections, data.gradeSections);
+        replaceArr(parentAccessByGrade, data.parentAccessByGrade);
+        replaceObj(classTeacherAssignments, data.classTeacherAssignments);
+
+        schoolYears = [DEFAULT_SCHOOL_YEAR];
+        activeSchoolYear = DEFAULT_SCHOOL_YEAR;
+        selectedSchoolYear = DEFAULT_SCHOOL_YEAR;
+        Object.keys(yearData).forEach(k => delete yearData[k]);
+        saveCurrentYearToYearData();
+        updateSchoolYearSelector();
       }
     }
 
@@ -2241,6 +2971,8 @@
       }
     }
 
+    saveCurrentYearToYearData();
+    updateSchoolYearSelector();
     updateSidebar();
     render();
     initApp();
