@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Paradise Mission Academy - School Portal</title>
   <link rel="icon" type="image/png" href="logo.png" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#1e40af" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="PMA Portal" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -152,6 +158,33 @@
       background: none; border: none; padding: 0; font-size: inherit; text-align: left;
     }
     .student-link:hover { color: var(--primary-light); }
+
+    /* Shortcut Button & Modal */
+    .shortcut-btn {
+      border: 1px solid rgba(255,255,255,0.55); background: rgba(255,255,255,0.18); color: #fff;
+      padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 0.82rem; font-weight: 600;
+      display: inline-flex; align-items: center; gap: 5px; transition: 0.2s;
+    }
+    .shortcut-btn:hover { background: #fff; color: var(--primary); border-color: #fff; }
+    .login-shortcut-wrap {
+      margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); text-align: center;
+    }
+    .login-shortcut-btn {
+      width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid #bfdbfe;
+      background: #eff6ff; color: var(--primary); font-size: 0.85rem; font-weight: 700;
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      transition: 0.2s;
+    }
+    .login-shortcut-btn:hover { background: #dbeafe; }
+    #shortcutModal { z-index: 10000; }
+    .shortcut-modal-box { max-width: 460px; }
+    .shortcut-steps {
+      background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; margin: 12px 0; font-size: 0.9rem;
+    }
+    .shortcut-steps ol { padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .shortcut-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .shortcut-actions .btn { flex: 1; min-width: 150px; text-align: center; }
   </style>
 </head>
 <body>
@@ -180,6 +213,9 @@
       <div id="supabaseNotice" style="display:none; margin-top:14px; padding:10px; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; font-size:0.78rem; color:#92400e;">
         ⚠️ <strong>Supabase Setup Required:</strong> Please enter <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> at the top of <code>index.html</code>. (See <code>SUPABASE_SETUP.md</code>)
       </div>
+      <div class="login-shortcut-wrap" id="loginShortcutWrap">
+        <button type="button" class="login-shortcut-btn" onclick="handleAddShortcut()">📲 Add Shortcut to Home Screen / Desktop</button>
+      </div>
     </div>
   </div>
 
@@ -198,9 +234,20 @@
       </div>
       <span id="userBadge" style="font-size:0.82rem; font-weight:600; background:rgba(255,255,255,0.16); padding:5px 10px; border-radius:999px;"></span>
       <span id="saveStatus" style="font-size:0.75rem; opacity:0.85;"></span>
+      <button type="button" id="topShortcutBtn" class="shortcut-btn" onclick="handleAddShortcut()" title="Add Shortcut to Home Screen or Desktop">📲 Add Shortcut</button>
       <button class="role-btn" onclick="logout()" style="background:#ef4444; border-color:#ef4444; color:#fff; margin-left:6px;">🚪 Logout</button>
     </div>
   </header>
+
+  <div id="shortcutModal" class="modal-backdrop" onclick="if(event.target===this) closeShortcutModal()">
+    <div class="modal-box shortcut-modal-box">
+      <div class="modal-header">
+        <div class="card-title">📲 Add Shortcut</div>
+        <button type="button" class="btn btn-sm btn-outline" onclick="closeShortcutModal()">✕ Close</button>
+      </div>
+      <div id="shortcutModalBody"></div>
+    </div>
+  </div>
 
   <div id="studentHistoryModal" class="modal-backdrop" onclick="if(event.target===this) closeStudentHistory()">
     <div class="modal-box" id="studentHistoryContent"></div>
@@ -2971,6 +3018,149 @@
       }
     }
 
+    // --- PWA / DESKTOP & HOME SCREEN SHORTCUT ---
+    let deferredInstallPrompt = null;
+
+    function isStandaloneMode() {
+      return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    }
+
+    function updateShortcutButtonsVisibility() {
+      const hide = isStandaloneMode();
+      const topBtn = document.getElementById('topShortcutBtn');
+      const loginWrap = document.getElementById('loginShortcutWrap');
+      if (topBtn) topBtn.style.display = hide ? 'none' : 'inline-flex';
+      if (loginWrap) loginWrap.style.display = hide ? 'none' : 'block';
+    }
+
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      updateShortcutButtonsVisibility();
+    });
+
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      const topBtn = document.getElementById('topShortcutBtn');
+      const loginWrap = document.getElementById('loginShortcutWrap');
+      if (topBtn) topBtn.style.display = 'none';
+      if (loginWrap) loginWrap.style.display = 'none';
+      closeShortcutModal();
+    });
+
+    async function handleAddShortcut() {
+      if (deferredInstallPrompt) {
+        try {
+          deferredInstallPrompt.prompt();
+          const choice = await deferredInstallPrompt.userChoice;
+          if (choice && choice.outcome === 'accepted') {
+            deferredInstallPrompt = null;
+            return;
+          }
+        } catch (_) {}
+      }
+      openShortcutModal();
+    }
+
+    function openShortcutModal() {
+      const modal = document.getElementById('shortcutModal');
+      const body = document.getElementById('shortcutModalBody');
+      if (!modal || !body) return;
+
+      const ua = navigator.userAgent || '';
+      const isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isAndroid = /Android/i.test(ua);
+
+      let guideHtml = '';
+      let showDownloadBtn = false;
+
+      if (isIOS) {
+        guideHtml = `
+          <p style="font-size:0.9rem; color:var(--muted);">Add <strong>PMA School Portal</strong> to your iPhone/iPad Home Screen:</p>
+          <div class="shortcut-steps">
+            <ol>
+              <li>Open this page in <strong>Safari</strong>.</li>
+              <li>Tap the <strong>Share</strong> icon (square with an up arrow) at the bottom of the screen.</li>
+              <li>Scroll down and tap <strong>"Add to Home Screen"</strong>.</li>
+              <li>Tap <strong>"Add"</strong> at the top-right corner.</li>
+            </ol>
+          </div>
+        `;
+      } else if (isAndroid) {
+        guideHtml = `
+          <p style="font-size:0.9rem; color:var(--muted);">Add <strong>PMA School Portal</strong> to your Android Home Screen:</p>
+          <div class="shortcut-steps">
+            <ol>
+              <li>Tap the <strong>Menu (⋮)</strong> button at the top-right of Chrome.</li>
+              <li>Tap <strong>"Add to Home screen"</strong> or <strong>"Install app"</strong>.</li>
+              <li>Tap <strong>"Install"</strong> or <strong>"Add"</strong> to confirm.</li>
+            </ol>
+          </div>
+        `;
+      } else {
+        showDownloadBtn = true;
+        guideHtml = `
+          <p style="font-size:0.9rem; color:var(--muted);">Create a shortcut for <strong>PMA School Portal</strong> on your computer:</p>
+          <div class="shortcut-steps">
+            <ol>
+              <li><strong>Fastest (Chrome / Edge):</strong> Click the <strong>Install</strong> icon (⊕ or monitor with arrow) on the right side of the address bar, or open menu (⋮) → <em>Cast, save, and share</em> → <em>Create shortcut</em>.</li>
+              <li><strong>Or download a shortcut file:</strong> Click the button below and move the downloaded file to your <strong>Desktop</strong>.</li>
+            </ol>
+          </div>
+        `;
+      }
+
+      body.innerHTML = `
+        ${guideHtml}
+        <div class="shortcut-actions">
+          ${showDownloadBtn ? `<button type="button" class="btn" onclick="downloadDesktopShortcut()">💻 Download Desktop Shortcut</button>` : ''}
+          <button type="button" class="btn btn-outline" id="copyPortalLinkBtn" onclick="copyPortalLink()">🔗 Copy Website Link</button>
+        </div>
+      `;
+      modal.classList.add('open');
+    }
+
+    function closeShortcutModal() {
+      const modal = document.getElementById('shortcutModal');
+      if (modal) modal.classList.remove('open');
+    }
+
+    function downloadDesktopShortcut() {
+      const url = window.location.href.split('#')[0];
+      const content = `[InternetShortcut]\r\nURL=${url}\r\n`;
+      const blob = new Blob([content], { type: 'application/internet-shortcut' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'Paradise Mission Academy Portal.url';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(a.href);
+        a.remove();
+      }, 200);
+    }
+
+    function copyPortalLink() {
+      const url = window.location.href.split('#')[0];
+      const btn = document.getElementById('copyPortalLinkBtn');
+      const done = () => {
+        if (btn) {
+          btn.textContent = '✅ Link Copied!';
+          setTimeout(() => { btn.textContent = '🔗 Copy Website Link'; }, 2000);
+        }
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(done).catch(() => prompt('Copy this link:', url));
+      } else {
+        prompt('Copy this link:', url);
+      }
+    }
+
+    updateShortcutButtonsVisibility();
     saveCurrentYearToYearData();
     updateSchoolYearSelector();
     updateSidebar();
