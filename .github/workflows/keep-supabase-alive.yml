@@ -2,7 +2,6 @@ name: Keep Supabase Alive
 
 on:
   schedule:
-    # 5일마다 필리핀 시간 오전 9시(UTC 01:00)에 자동 실행
     - cron: '0 1 /5  *'
   workflow_dispatch:
 
